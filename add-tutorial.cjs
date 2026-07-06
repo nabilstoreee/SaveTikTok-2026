@@ -37,7 +37,7 @@ export function TutorialPanel({ isOpen, onClose }: { isOpen: boolean; onClose: (
                     <span className="text-2xl font-bold">1</span>
                   </div>
                   <h3 className="font-bold text-lg text-slate-900 dark:text-white">Copy Link</h3>
-                  <p className="text-slate-600 dark:text-slate-400">Copy the video link from TikTok or YouTube app.</p>
+                  <p className="text-slate-600 dark:text-slate-400">Salin tautan video dari aplikasi TikTok atau YouTube.</p>
                 </div>
               )}
               {step === 2 && (
@@ -46,7 +46,7 @@ export function TutorialPanel({ isOpen, onClose }: { isOpen: boolean; onClose: (
                     <span className="text-2xl font-bold">2</span>
                   </div>
                   <h3 className="font-bold text-lg text-slate-900 dark:text-white">Paste Link</h3>
-                  <p className="text-slate-600 dark:text-slate-400">Paste the copied link into the input field in this app.</p>
+                  <p className="text-slate-600 dark:text-slate-400"><Tempel tautan yang telah disalin ke kolom input di aplikasi ini./p>
                 </div>
               )}
               {step === 3 && (
@@ -55,7 +55,7 @@ export function TutorialPanel({ isOpen, onClose }: { isOpen: boolean; onClose: (
                     <span className="text-2xl font-bold">3</span>
                   </div>
                   <h3 className="font-bold text-lg text-slate-900 dark:text-white">{t('Unduh')}</h3>
-                  <p className="text-slate-600 dark:text-slate-400">Click download and choose your preferred video quality.</p>
+                  <p className="text-slate-600 dark:text-slate-400">Klik unduh dan pilih kualitas video yang Anda inginkan.</p>
                 </div>
               )}
             </div>
