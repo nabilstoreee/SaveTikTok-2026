@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ClipboardPaste, Loader2, Play, Menu } from 'lucide-react';
+import { ClipboardPaste, Loader2, Play, Menu, Sparkles, X } from 'lucide-react';
 import { fetchTikTok, fetchYouTube } from './lib/api';
 import { VideoResultData } from './types';
 import { VideoResult } from './components/VideoResult';
@@ -8,7 +8,7 @@ import { addHistory } from './lib/history';
 import { getSettings, saveSettings } from './lib/settings';
 import { HistoryPanel, InfoPanel, AdminPanel, SidebarMenu, RatingPanel, AboutPanel, FeedbackPanel, UpdateModal } from './components/Panels';
 import { t } from './lib/i18n';
-import { UserState, loadUser, saveUser } from "./lib/user";
+import { UserState, loadUser, saveUser, isPremiumActive } from "./lib/user";
 import { AuthModal, RewardsPanel, UserProfilePanel, LoginScreen, TutorialPanel } from "./components/UserPanels";
 import { AdBanner } from "./components/AdBanner";
 
@@ -42,6 +42,58 @@ const FlipClockUnit = ({ label, value }: { label: string; value: number }) => {
   );
 };
 
+const AnnouncementModal = ({ isOpen, onClose, message }: { isOpen: boolean; onClose: () => void; message: string }) => {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ scale: 0.95, y: 20, opacity: 0 }}
+            animate={{ scale: 1, y: 0, opacity: 1 }}
+            exit={{ scale: 0.95, y: 20, opacity: 0 }}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-[2rem] max-w-md w-full relative shadow-2xl max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={onClose}
+              className="absolute top-4 right-4 p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-indigo-500/20 rounded-xl text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            
+            <div className="space-y-4 text-center py-2">
+              <div className="mx-auto w-16 h-16 bg-amber-50 dark:bg-amber-500/10 rounded-full flex items-center justify-center text-amber-500 mb-2">
+                <Sparkles className="w-8 h-8 animate-pulse" />
+              </div>
+              
+              <h3 className="text-base font-black text-slate-800 dark:text-white uppercase tracking-tight">
+                Informasi & Promo Terbaru
+              </h3>
+              
+              <div className="bg-slate-50 dark:bg-[#0b0f19] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 text-xs text-slate-600 dark:text-slate-300 font-semibold leading-relaxed text-left whitespace-pre-wrap">
+                {message || 'Tidak ada isi pengumuman.'}
+              </div>
+              
+              <button 
+                onClick={onClose}
+                className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-indigo-500/20 text-xs mt-2"
+              >
+                Saya Mengerti & Tutup
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 export default function App() {
   const [platform, setPlatform] = useState<Platform>('tiktok');
   const [url, setUrl] = useState('');
@@ -55,6 +107,18 @@ export default function App() {
   const [user, setUser] = useState<UserState>(loadUser());
   const [prevPoints, setPrevPoints] = useState<number>(loadUser().points);
   const [floatingPoints, setFloatingPoints] = useState<{ id: number; amount: number }[]>([]);
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setUser(loadUser());
+    };
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('user_updated', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('user_updated', handleStorageChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (user.isLoggedIn && user.points > prevPoints) {
@@ -99,6 +163,19 @@ export default function App() {
   const [showFeedback, setShowFeedback] = useState(false);
   const [showUpdate, setShowUpdate] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [showAnnouncement, setShowAnnouncement] = useState(false);
+
+  useEffect(() => {
+    if (settings.broadcastAnnouncementActive) {
+      const lastSeenId = localStorage.getItem('savetik_last_seen_announcement_id');
+      if (lastSeenId !== settings.broadcastAnnouncementId) {
+        const timer = setTimeout(() => {
+          setShowAnnouncement(true);
+        }, 1200);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [settings.broadcastAnnouncementActive, settings.broadcastAnnouncementId]);
 
   const [remainingTime, setRemainingTime] = useState<{h: number, m: number, s: number} | null>(null);
 
@@ -264,7 +341,11 @@ export default function App() {
   const colors = getPlatformColors(platform);
 
 
-  if (settings.maintenanceMode && user?.email !== "jrnabil570@gmail.com") {
+  const isMaintenanceActive = settings.maintenanceMode && 
+    user?.email !== "jrnabil570@gmail.com" && 
+    (!settings.maintenanceEndTime || settings.maintenanceEndTime > Date.now());
+
+  if (isMaintenanceActive) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-[#0b0f19] flex items-center justify-center p-4">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] p-8 max-w-md w-full text-center shadow-xl relative">
@@ -415,7 +496,7 @@ export default function App() {
           ))}
         </div>
 
-        {settings.showAdsForNonPremium !== false && !(user.premiumUntil && user.premiumUntil > Date.now()) && (
+        {settings.showAdsForNonPremium !== false && !isPremiumActive(user) && (
           <AdBanner position="top" onUpgradeClick={() => setShowRewards(true)} />
         )}
 
@@ -516,7 +597,7 @@ export default function App() {
               </motion.div>
             ) : (
               <motion.div key="result-section">
-                <VideoResult data={result} onBack={() => setResult(null)} settings={settings} />
+                <VideoResult data={result} onBack={() => setResult(null)} settings={settings} user={user} onUpgradeClick={() => setShowRewards(true)} />
               </motion.div>
             )}
           </AnimatePresence>
@@ -553,15 +634,28 @@ export default function App() {
       <UpdateModal isOpen={showUpdate} onClose={() => setShowUpdate(false)} settings={settings} />
       <RatingPanel isOpen={showRating} onClose={() => setShowRating(false)} />
       <RewardsPanel isOpen={showRewards} onClose={() => setShowRewards(false)} user={user} onRedeem={(days, cost) => {
-        const premiumUntil = days === 0 ? null : (Date.now() + days * 24 * 60 * 60 * 1000);
+        const premiumUntil = days === -1 ? -1 : (days === 0 ? null : (Date.now() + days * 24 * 60 * 60 * 1000));
         const updated = { ...user, points: user.points - cost, premiumUntil };
+        setUser(updated);
+        saveUser(updated);
+      }} onPurchasePremium={(days) => {
+        const premiumUntil = days === -1 ? -1 : (Date.now() + days * 24 * 60 * 60 * 1000);
+        const updated = { ...user, premiumUntil };
         setUser(updated);
         saveUser(updated);
       }} />
       <TutorialPanel isOpen={showTutorial} onClose={() => { setShowTutorial(false); const u = { ...user, hasSeenTutorial: true }; setUser(u); saveUser(u); }} />
-      <UserProfilePanel isOpen={showProfile} onClose={() => setShowProfile(false)} user={user} onLogout={() => { const u = { ...user, isLoggedIn: false }; setUser(u); saveUser(u); }} onOpenRewards={() => setShowRewards(true)} />
+      <UserProfilePanel isOpen={showProfile} onClose={() => setShowProfile(false)} user={user} onLogout={() => { const u = { ...user, isLoggedIn: false }; setUser(u); saveUser(u); }} onOpenRewards={() => setShowRewards(true)} onUpdateUser={(updated) => { setUser(updated); saveUser(updated); }} />
+      <AnnouncementModal 
+        isOpen={showAnnouncement} 
+        onClose={() => { 
+          setShowAnnouncement(false); 
+          localStorage.setItem('savetik_last_seen_announcement_id', settings.broadcastAnnouncementId || ''); 
+        }} 
+        message={settings.broadcastAnnouncementMessage || ''} 
+      />
 
-      {settings.showAdsForNonPremium !== false && !(user.premiumUntil && user.premiumUntil > Date.now()) && (
+      {settings.showAdsForNonPremium !== false && !isPremiumActive(user) && (
         <AdBanner position="bottom" onUpgradeClick={() => setShowRewards(true)} />
       )}
 
