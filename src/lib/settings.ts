@@ -12,6 +12,17 @@ export interface PremiumPlan {
   desc: string;
 }
 
+export interface DirectPurchasePlan {
+  id: string;
+  label: string;
+  days: number;
+  price: string;
+  originalPrice: string;
+  discount: string;
+  desc: string;
+  popular?: boolean;
+}
+
 export interface SiteSettings {
   brandTitle: string;
   brandDesc: string;
@@ -50,6 +61,9 @@ export interface SiteSettings {
   updateVersion?: string;
   updateTitle?: string;
   updateMessage?: string;
+  broadcastAnnouncementActive?: boolean;
+  broadcastAnnouncementMessage?: string;
+  broadcastAnnouncementId?: string;
   faqs: FAQItem[];
   apiProviders: {
     tiktok: string;
@@ -64,6 +78,10 @@ export interface SiteSettings {
   premiumCost30Days: number;
   showAdsForNonPremium: boolean;
   premiumPlans: PremiumPlan[];
+  adminQrisUrl?: string;
+  adminDanaNumber?: string;
+  adminGopayNumber?: string;
+  directPlans?: DirectPurchasePlan[];
 }
 
 const DEFAULT_SETTINGS: SiteSettings = {
@@ -103,6 +121,9 @@ const DEFAULT_SETTINGS: SiteSettings = {
   updateVersion: 'v2.5.0',
   updateTitle: 'Update Fitur Baru Tersedia!',
   updateMessage: 'Nikmati penamaan file otomatis yang bisa dikustomisasi, statistik kreator di profil, halaman Tentang aplikasi, dan pelaporan masukan/bug secara langsung!',
+  broadcastAnnouncementActive: false,
+  broadcastAnnouncementMessage: 'Promo Paket Premium Khusus Hari Ini! Dapatkan Premium Permanen hanya dengan 15.000 Poin!',
+  broadcastAnnouncementId: 'bc_default_1',
   faqs: [
     { id: '1', question: 'Apakah layanan ini gratis?', answer: 'Ya, layanan 100% gratis tanpa batasan.' },
     { id: '2', question: 'Kenapa video gagal didownload?', answer: 'Pastikan URL valid dan video tidak di-private.' }
@@ -123,7 +144,16 @@ const DEFAULT_SETTINGS: SiteSettings = {
     { id: 'reset', days: 0, cost: 0, label: '0 Hari (Reset/Hapus Premium)', desc: 'Kembali ke Member Biasa (Untuk Test Iklan)' },
     { id: '1day', days: 1, cost: 100, label: '1 Hari Premium', desc: 'Bebas Iklan + Kecepatan Tinggi' },
     { id: '7days', days: 7, cost: 1000, label: '7 Hari Premium', desc: 'Bebas Iklan + Kecepatan Tinggi' },
-    { id: '30days', days: 30, cost: 5000, label: '1 Bulan Premium', desc: 'Bebas Iklan + Kecepatan Tinggi' }
+    { id: '30days', days: 30, cost: 5000, label: '1 Bulan Premium', desc: 'Bebas Iklan + Kecepatan Tinggi' },
+    { id: 'permanent', days: -1, cost: 15000, label: 'Premium Permanen', desc: 'Bebas Iklan Selamanya (Permanen)' }
+  ],
+  adminQrisUrl: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' width='300' height='300'><rect width='100' height='100' fill='white'/><path d='M10 10h30v30H10zm5 5v20h20V15zm5 5h10v10H20zm40-10h30v30H60zm5 5v20h20V15zm5 5h10v10H70zM10 60h30v30H10zm5 5v20h20V65zm5 5h10v10H20zm45-10h10v10H65zm10 0h10v10H75zm-10 10h10v10H65zm10 0h15v10H75zm-15 10h10v10H60zm20 0h10v10H80zm-15-20h5v5h-5z' fill='%23111111'/></svg>",
+  adminDanaNumber: '081234567890',
+  adminGopayNumber: '081234567890',
+  directPlans: [
+    { id: 'buy_30_days', label: 'Premium 30 Hari', days: 30, price: 'Rp 15.000', originalPrice: 'Rp 30.000', discount: '50% OFF', desc: 'Akses tanpa iklan, dedicated server premium 10x lebih cepat selama 30 hari.' },
+    { id: 'buy_90_days', label: 'Premium 90 Hari', days: 90, price: 'Rp 35.000', originalPrice: 'Rp 90.000', discount: '61% OFF', desc: 'Pilihan Populer! Nikmati server super cepat & bebas iklan selama 90 hari.', popular: true },
+    { id: 'buy_lifetime', label: 'Premium Selamanya', days: -1, price: 'Rp 75.000', originalPrice: 'Rp 250.000', discount: '70% OFF', desc: 'Akses tanpa batas, server high-speed 10x dan bebas iklan selamanya (Permanen).' }
   ]
 };
 
@@ -135,7 +165,8 @@ export function getSettings(): SiteSettings {
       return { 
         ...DEFAULT_SETTINGS, 
         ...parsed,
-        premiumPlans: parsed.premiumPlans || DEFAULT_SETTINGS.premiumPlans
+        premiumPlans: parsed.premiumPlans || DEFAULT_SETTINGS.premiumPlans,
+        directPlans: parsed.directPlans || DEFAULT_SETTINGS.directPlans
       };
     }
   } catch (e) {}
