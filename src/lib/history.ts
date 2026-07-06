@@ -21,7 +21,7 @@ export function clearHistory() {
   localStorage.removeItem(HISTORY_KEY);
 }
 
-export function removeHistoryItem(id: string) {
+export function removeHistoryItem(id: string | number) {
   const hist = getHistory();
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(hist.filter(i => i.id !== id)));
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(hist.filter(i => String(i.id) !== String(id))));
 }
