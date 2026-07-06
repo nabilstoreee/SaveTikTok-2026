@@ -274,10 +274,18 @@ export function VideoAdModal({ isOpen, onClose, onAdCompleted }: VideoAdModalPro
     <AnimatePresence>
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-md select-none">
         <motion.div 
+          drag={canSkip ? "y" : false}
+          dragConstraints={{ top: -800, bottom: 0 }}
+          dragElastic={{ top: 0.6, bottom: 0.05 }}
+          onDragEnd={(event, info) => {
+            if (canSkip && (info.offset.y < -80 || info.velocity.y < -80)) {
+              handleSkip();
+            }
+          }}
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col"
+          exit={{ opacity: 0, scale: 0.95, y: -300 }}
+          className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col touch-pan-y"
         >
           {/* Header Banner */}
           <div className="px-5 py-3.5 bg-slate-950 border-b border-slate-800/80 flex items-center justify-between">
@@ -404,6 +412,12 @@ export function VideoAdModal({ isOpen, onClose, onAdCompleted }: VideoAdModalPro
               <span>{ad.ctaText}</span>
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
+
+            {canSkip && (
+              <div className="text-center text-[10px] text-emerald-400 font-extrabold animate-bounce flex items-center justify-center gap-1 mt-1.5 cursor-ns-resize select-none">
+                ▲ Geser / Swipe ke atas untuk menutup iklan ini ▲
+              </div>
+            )}
           </div>
         </motion.div>
       </div>
