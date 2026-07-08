@@ -219,7 +219,7 @@ export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClo
     }
   };
 
-  const handleVerifyAndRegister = (e: any) => {
+  const handleVerifyAndRegister = async (e: any) => {
     e.preventDefault();
     if (verificationInput !== verificationCode) {
       setError('Kode verifikasi salah! Silakan masukkan kode 6-digit yang benar.');
@@ -244,7 +244,7 @@ export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClo
       securityAnswer: regAnswer,
       verified: true
     });
-    saveRegisteredUsers(users);
+    await saveRegisteredUsers(users);
 
     setSuccess('Akun berhasil diverifikasi & didaftarkan! Silakan masuk.');
     setError('');
@@ -1952,7 +1952,7 @@ export function LoginScreen({ onLogin }: { onLogin: (user: UserState) => void })
     }
   };
 
-  const handleVerifyAndRegister = (e: any) => {
+  const handleVerifyAndRegister = async (e: any) => {
     e.preventDefault();
     if (verificationInput !== verificationCode) {
       setError('Kode verifikasi salah! Silakan masukkan kode 6-digit yang benar.');
@@ -1975,7 +1975,7 @@ export function LoginScreen({ onLogin }: { onLogin: (user: UserState) => void })
       securityAnswer: regAnswer,
       verified: true
     });
-    saveRegisteredUsers(users);
+    await saveRegisteredUsers(users);
     setSuccess('Akun berhasil diverifikasi & didaftarkan! Silakan masuk.');
     setError('');
     
