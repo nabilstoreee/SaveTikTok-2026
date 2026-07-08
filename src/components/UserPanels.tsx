@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { t } from '../lib/i18n';
-import { X, LogIn, User, Zap, Gift, Shield, CheckCircle2, Sparkles, Eye, EyeOff, ArrowLeft, QrCode, Smartphone, CreditCard, Check, AlertTriangle, Send, Upload, MessageSquare, Image, Trash2, Mail } from 'lucide-react';
-import { UserState, logUserLogin, isPremiumActive, getUserPassword, updateUserProfile, getRegisteredUsers, saveRegisteredUsers, isEmailBanned, isIpBanned, getSimulatedIp, deleteUserAccount, STANDARD_SECURITY_QUESTIONS, getUserSecurityQuestion, verifySecurityAnswerAndResetPassword, checkBanStatus, savePaymentRequests, removePaymentRequest, initializeFirestoreSync } from '../lib/user';
+import { X, LogIn, User, Zap, Gift, Shield, CheckCircle2, Sparkles, Eye, EyeOff, ArrowLeft, QrCode, Smartphone, CreditCard, Check, AlertTriangle, Send, Upload, MessageSquare, Image, Trash2, Mail, Info, HelpCircle, MinusCircle, PlusCircle, History, Calendar } from 'lucide-react';
+import { UserState, logUserLogin, isPremiumActive, getUserPassword, updateUserProfile, getRegisteredUsers, saveRegisteredUsers, isEmailBanned, isIpBanned, getSimulatedIp, deleteUserAccount, STANDARD_SECURITY_QUESTIONS, getUserSecurityQuestion, verifySecurityAnswerAndResetPassword, checkBanStatus, savePaymentRequests, removePaymentRequest, initializeFirestoreSync, registerWithEmailFirebase, loginWithEmailFirebase, loginWithGoogleFirebase, logoutFirebase } from '../lib/user';
 import { getSettings } from '../lib/settings';
 import { clearHistory } from '../lib/history';
+import { auth } from '../lib/firebase';
 
 export function PremiumStatusBadge({ user, className = '' }: { user: UserState; className?: string }) {
   const [timeLeft, setTimeLeft] = useState('');
@@ -106,6 +107,7 @@ function Modal({ isOpen, onClose, title, children }: any) {
   );
 }
 
+
 export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClose: () => void, onLogin: (user: UserState) => void }) {
   const [isRegister, setIsRegister] = useState(false);
   const [name, setName] = useState('');
@@ -201,8 +203,12 @@ export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClo
         setError('Silakan masukkan jawaban rahasia.');
         return;
       }
-      if (forgotNewPassword.length !== 6) {
-        setError('Password baru harus tepat 6 karakter/angka!');
+      if (forgotNewPassword.length < 6) {
+        setError('Password baru harus minimal 6 karakter!');
+        return;
+      }
+      if (!/\d$/.test(forgotNewPassword)) {
+        setError('Password baru harus diakhiri dengan angka (nomor di belakang)! (Contoh: rahasia123)');
         return;
       }
       
@@ -219,43 +225,23 @@ export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClo
     }
   };
 
-  const handleVerifyAndRegister = async (e: any) => {
-    e.preventDefault();
-    if (verificationInput !== verificationCode) {
-      setError('Kode verifikasi salah! Silakan masukkan kode 6-digit yang benar.');
-      return;
-    }
+  const [isLoading, setIsLoading] = useState(false);
 
-    const currentIp = getSimulatedIp(email);
-    const users = getRegisteredUsers();
-    
-    const settings = getSettings();
-    const initialPoints = settings.registerPointsReward !== undefined ? settings.registerPointsReward : 50;
-    
-    const finalQuestion = regQuestion === 'custom' ? regQuestionCustom : regQuestion;
-
-    users.push({ 
-      name, 
-      email, 
-      password, 
-      points: initialPoints, 
-      ip: currentIp,
-      securityQuestion: finalQuestion,
-      securityAnswer: regAnswer,
-      verified: true
-    });
-    await saveRegisteredUsers(users);
-
-    setSuccess('Akun berhasil diverifikasi & didaftarkan! Silakan masuk.');
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
     setError('');
-    
-    setIsRegister(false);
-    setIsVerifyingEmail(false);
-    setName('');
-    setPassword('');
-    setRegAnswer('');
-    setRegQuestionCustom('');
-    setRegQuestion(STANDARD_SECURITY_QUESTIONS[0]);
+    setSuccess('');
+    try {
+      const userState = await loginWithGoogleFirebase();
+      setSuccess('Berhasil masuk dengan Google!');
+      onLogin(userState);
+      onClose();
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Gagal masuk dengan Google.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleLogin = async (e: any) => {
@@ -263,97 +249,75 @@ export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClo
     if (!email || !password) return;
     if (isRegister && !name) return;
 
-    if (password.length !== 6) {
-      setError('Password harus tepat 6 karakter/angka!');
+    if (password.length < 6) {
+      setError('Password harus minimal 6 karakter!');
       return;
     }
+    if (isRegister && !/\d$/.test(password)) {
+      setError('Password harus diakhiri dengan angka (nomor di belakang)! (Contoh: rahasia123)');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    setSuccess('');
 
     try {
       await initializeFirestoreSync();
-    } catch (e) {
-      console.error("Firestore sync before login failed:", e);
+    } catch (err) {
+      console.error("Firestore sync before login failed:", err);
     }
 
-    const currentIp = getSimulatedIp(email);
-    const users = getRegisteredUsers();
-    const foundUser = users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
+    try {
+      if (isRegister) {
+        if (regQuestion === 'custom' && !regQuestionCustom.trim()) {
+          setError('Silakan masukkan pertanyaan keamanan kustom Anda.');
+          setIsLoading(false);
+          return;
+        }
+        if (!regAnswer.trim()) {
+          setError('Silakan masukkan jawaban keamanan rahasia Anda.');
+          setIsLoading(false);
+          return;
+        }
 
-    if (!isRegister && !foundUser) {
-      setError('Akun tidak ditemukan. Silakan daftar terlebih dahulu.');
-      return;
-    }
+        const finalQuestion = regQuestion === 'custom' ? regQuestionCustom : regQuestion;
+        await registerWithEmailFirebase(email, password, name, finalQuestion, regAnswer);
+        setSuccess('Akun berhasil didaftarkan! Silakan masuk.');
+        setIsRegister(false);
+        setPassword('');
+        setRegAnswer('');
+        setRegQuestionCustom('');
+      } else {
+        if (rememberMe) {
+          localStorage.setItem('saved_credentials', JSON.stringify({ email, password }));
+        } else {
+          localStorage.removeItem('saved_credentials');
+        }
 
-    const banReason = checkBanStatus(foundUser || { email, ip: currentIp });
-    if (banReason) {
-      setError(banReason);
-      return;
-    }
-
-    if (isRegister) {
-      const users = getRegisteredUsers();
-      const exists = users.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
-      if (exists) {
-        setError('Email sudah terdaftar! Silakan gunakan email lain atau langsung masuk.');
-        return;
+        const userState = await loginWithEmailFirebase(email, password);
+        setSuccess('Berhasil masuk!');
+        onLogin(userState);
+        onClose();
       }
-
-      if (regQuestion === 'custom' && !regQuestionCustom.trim()) {
-        setError('Silakan masukkan pertanyaan keamanan kustom Anda.');
-        return;
+    } catch (err: any) {
+      console.error(err);
+      let errorMsg = 'Terjadi kesalahan sistem.';
+      if (err.code === 'auth/email-already-in-use') {
+        errorMsg = 'Email sudah terdaftar! Silakan masuk atau gunakan email lain.';
+      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+        errorMsg = 'Email atau password salah!';
+      } else if (err.code === 'auth/weak-password') {
+        errorMsg = 'Password terlalu lemah! Gunakan minimal 6 karakter.';
+      } else if (err.code === 'auth/invalid-email') {
+        errorMsg = 'Format email tidak valid!';
+      } else if (err.message) {
+        errorMsg = err.message;
       }
-      if (!regAnswer.trim()) {
-        setError('Silakan masukkan jawaban keamanan rahasia Anda.');
-        return;
-      }
-
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      setVerificationCode(code);
-      setVerificationInput('');
-      setVerificationTimer(60);
-      setIsVerifyingEmail(true);
-      setError('');
-      setSuccess('');
-      return;
+      setError(errorMsg);
+    } finally {
+      setIsLoading(false);
     }
-
-    if (rememberMe) {
-      localStorage.setItem('saved_credentials', JSON.stringify({ email, password }));
-    } else {
-      localStorage.removeItem('saved_credentials');
-    }
-    
-    if (foundUser && foundUser.banned) {
-      setError('Akun Anda telah ditangguhkan (banned) oleh Administrator.');
-      return;
-    }
-
-    if (foundUser && foundUser.password !== password) {
-      setError('Password salah! Silakan masukkan password yang tepat.');
-      return;
-    }
-
-    const settings = getSettings();
-    const initialPoints = settings.registerPointsReward !== undefined ? settings.registerPointsReward : 50;
-
-    const username = foundUser ? foundUser.name : email.split('@')[0];
-    const userPoints = foundUser && foundUser.points !== undefined ? foundUser.points : initialPoints;
-    const premiumUntil = foundUser && foundUser.premiumUntil !== undefined ? foundUser.premiumUntil : null;
-    const hasSeenTutorial = foundUser && foundUser.hasSeenTutorial !== undefined ? foundUser.hasSeenTutorial : false;
-
-    const mockUser: UserState = {
-      isLoggedIn: true,
-      username: username || `User${Math.floor(Math.random() * 1000)}`,
-      email,
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + email,
-      points: userPoints,
-      premiumUntil,
-      hasSeenTutorial,
-      ip: currentIp,
-      banned: foundUser ? foundUser.banned : false
-    };
-    logUserLogin(email, mockUser.username, mockUser.points);
-    onLogin(mockUser);
-    onClose();
   };
 
   let modalTitle = "Masuk ke Akun";
@@ -425,16 +389,16 @@ export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClo
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">Kata Sandi Baru (6 Angka/Karakter)</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">Kata Sandi Baru (Min. 6 Karakter & Diakhiri Angka)</label>
                   <div className="relative">
                     <input
                       type={showForgotNewPass ? "text" : "password"}
                       required
-                      maxLength={6}
+                      maxLength={32}
                       value={forgotNewPassword}
                       onChange={e => setForgotNewPassword(e.target.value)}
                       className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl pl-4 pr-12 py-3 text-sm text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none transition-colors"
-                      placeholder="Masukkan 6 digit password baru"
+                      placeholder="Masukkan password baru (min 6 karakter & diakhiri angka)"
                     />
                     <button
                       type="button"
@@ -464,95 +428,6 @@ export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClo
               >
                 Kembali ke Halaman Masuk
               </button>
-            </div>
-          </form>
-        </div>
-      ) : isVerifyingEmail ? (
-        <div className="space-y-4 text-left">
-          <div className="text-center mb-5">
-            <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
-              <Shield className="w-7 h-7" />
-            </div>
-            <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
-              Verifikasi Alamat Email Anda
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-              Kode verifikasi OTP 6-digit telah dikirimkan ke email <span className="font-extrabold text-indigo-500">{email}</span>.
-            </p>
-          </div>
-
-          <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-2xl p-4 space-y-1.5 relative overflow-hidden">
-            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-400 text-xs font-black">
-              <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-              <span>[SIMULATOR SERVER EMAIL]</span>
-            </div>
-            <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 leading-normal">
-              Kepada: <span className="font-mono text-indigo-600 dark:text-indigo-400">{email}</span>
-            </p>
-            <p className="text-xs font-bold text-slate-800 dark:text-white leading-normal">
-              Subjek: <span className="text-amber-700 dark:text-amber-400">[SaveTik] OTP Kode Verifikasi Akun Anda</span>
-            </p>
-            <div className="mt-2 p-3 bg-white dark:bg-[#0c101d] rounded-xl border border-slate-100 dark:border-slate-800/80 text-center">
-              <span className="text-[10px] text-slate-400 block font-medium">KODE VERIFIKASI SEKERING:</span>
-              <span className="text-2xl font-black tracking-widest text-indigo-600 dark:text-indigo-400 font-mono select-all animate-pulse">{verificationCode}</span>
-            </div>
-          </div>
-
-          <form onSubmit={handleVerifyAndRegister} className="space-y-4">
-            {error && (
-              <div className="bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-semibold p-3.5 rounded-xl text-center">
-                {error}
-              </div>
-            )}
-            {success && (
-              <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400 text-xs font-semibold p-3.5 rounded-xl text-center">
-                {success}
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider text-center">Masukkan Kode Verifikasi</label>
-              <input
-                type="text"
-                required
-                maxLength={6}
-                value={verificationInput}
-                onChange={e => setVerificationInput(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3.5 text-center text-xl font-mono font-black tracking-widest text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none transition-colors"
-                placeholder="0 0 0 0 0 0"
-              />
-            </div>
-
-            <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl transition-colors shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2">
-              Verifikasi & Buat Akun <Check className="w-4 h-4" />
-            </button>
-
-            <div className="flex justify-between items-center text-xs mt-3 px-1">
-              <button 
-                type="button" 
-                onClick={() => {
-                  setIsVerifyingEmail(false);
-                  setError('');
-                  setSuccess('');
-                }}
-                className="font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline"
-              >
-                Kembali Edit Profil
-              </button>
-              
-              {verificationTimer > 0 ? (
-                <span className="text-slate-400 font-semibold">
-                  Kirim ulang OTP ({verificationTimer}s)
-                </span>
-              ) : (
-                <button 
-                  type="button" 
-                  onClick={handleResendCode}
-                  className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
-                >
-                  Kirim Ulang Kode OTP
-                </button>
-              )}
             </div>
           </form>
         </div>
@@ -611,7 +486,7 @@ export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClo
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">Password (6 Angka/Karakter)</label>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">Password (Min. 6 Karakter & Diakhiri Angka)</label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
@@ -632,7 +507,7 @@ export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClo
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              <span className="text-[10px] text-slate-400 block mt-1">Password harus tepat bernilai 6 karakter</span>
+              <span className="text-[10px] text-slate-400 block mt-1">Password harus minimal 6 karakter dan diakhiri dengan angka (contoh: rahasia123)</span>
             </div>
 
             {isRegister && (
@@ -715,8 +590,40 @@ export function AuthModal({ isOpen, onClose, onLogin }: { isOpen: boolean, onClo
               )}
             </div>
 
-            <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl transition-colors shadow-md shadow-indigo-500/20 mt-2 flex items-center justify-center gap-2">
-              {isRegister ? "Daftar & Kirim Kode OTP" : "Masuk"} <Zap className="w-4 h-4" />
+            <button 
+              type="submit" 
+              disabled={isLoading}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl transition-colors shadow-md shadow-indigo-500/20 mt-2 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isLoading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <>
+                  {isRegister ? "Daftar Akun Baru" : "Masuk"} <Zap className="w-4 h-4" />
+                </>
+              )}
+            </button>
+
+            <div className="relative my-4 text-center">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200 dark:border-slate-800/80"></div>
+              </div>
+              <span className="relative px-3 text-[10px] font-bold text-slate-400 bg-white dark:bg-[#0b0f19] uppercase tracking-wider">Atau Lanjutkan Dengan</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={isLoading}
+              className="w-full flex items-center justify-center gap-2.5 bg-white dark:bg-slate-900/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-200 font-bold py-3 px-4 rounded-xl border border-slate-200 dark:border-slate-800 transition-all shadow-sm active:scale-[0.99] disabled:opacity-50"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+              </svg>
+              Masuk dengan Google
             </button>
 
             <div className="text-center mt-4">
@@ -854,11 +761,15 @@ export function RewardsPanel({
       return;
     }
 
+    const currentUser = auth.currentUser;
+    const emailToUse = currentUser?.email || user.email || 'guest@example.com';
+    const nameToUse = currentUser?.displayName || user.username || 'Guest';
+
     const reqId = 'pay_' + Date.now();
     const newRequest: any = {
       id: reqId,
-      userEmail: user.email || 'guest@example.com',
-      userName: user.username || 'Guest',
+      userEmail: emailToUse,
+      userName: nameToUse,
       planId: checkoutPlan.id,
       planLabel: checkoutPlan.label,
       planDays: checkoutPlan.days,
@@ -1549,8 +1460,12 @@ export function UserProfilePanel({ isOpen, onClose, user, onLogout, onOpenReward
       setEditError('Email tidak boleh kosong!');
       return;
     }
-    if (editPassword.length !== 6) {
-      setEditError('Password harus tepat 6 karakter/angka!');
+    if (editPassword.length < 6) {
+      setEditError('Password harus minimal 6 karakter!');
+      return;
+    }
+    if (!/\d$/.test(editPassword)) {
+      setEditError('Password harus diakhiri dengan angka (nomor di belakang)! (Contoh: rahasia123)');
       return;
     }
 
@@ -1709,15 +1624,15 @@ export function UserProfilePanel({ isOpen, onClose, user, onLogout, onOpenReward
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wide">Password (6 Angka/Karakter)</label>
+              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wide">Password (Min. 6 Karakter & Diakhiri Angka)</label>
               <div className="relative">
                 <input
                   type={showEditPass ? 'text' : 'password'}
                   value={editPassword}
-                  maxLength={6}
+                  maxLength={32}
                   onChange={(e) => setEditPassword(e.target.value)}
                   className="w-full bg-white dark:bg-[#0b0f19] border border-slate-200 dark:border-slate-800 rounded-xl pl-3 pr-10 py-2 text-xs text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 font-mono tracking-widest"
-                  placeholder="Password 6 digit"
+                  placeholder="Password baru (min 6 karakter & diakhiri angka)"
                 />
                 <button
                   type="button"
@@ -1873,21 +1788,7 @@ export function LoginScreen({ onLogin }: { onLogin: (user: UserState) => void })
   const [regQuestionCustom, setRegQuestionCustom] = useState('');
   const [regAnswer, setRegAnswer] = useState('');
 
-  // Email Verification states
-  const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
-  const [verificationCode, setVerificationCode] = useState('');
-  const [verificationInput, setVerificationInput] = useState('');
-  const [verificationTimer, setVerificationTimer] = useState(0);
 
-  useEffect(() => {
-    let interval: any;
-    if (verificationTimer > 0 && isVerifyingEmail) {
-      interval = setInterval(() => {
-        setVerificationTimer((prev: any) => prev - 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [verificationTimer, isVerifyingEmail]);
 
   useEffect(() => {
     const saved = localStorage.getItem('saved_credentials');
@@ -1934,8 +1835,12 @@ export function LoginScreen({ onLogin }: { onLogin: (user: UserState) => void })
         setError('Silakan masukkan jawaban rahasia.');
         return;
       }
-      if (forgotNewPassword.length !== 6) {
-        setError('Password baru harus tepat 6 karakter/angka!');
+      if (forgotNewPassword.length < 6) {
+        setError('Password baru harus minimal 6 karakter!');
+        return;
+      }
+      if (!/\d$/.test(forgotNewPassword)) {
+        setError('Password baru harus diakhiri dengan angka (nomor di belakang)! (Contoh: rahasia123)');
         return;
       }
       
@@ -1952,49 +1857,22 @@ export function LoginScreen({ onLogin }: { onLogin: (user: UserState) => void })
     }
   };
 
-  const handleVerifyAndRegister = async (e: any) => {
-    e.preventDefault();
-    if (verificationInput !== verificationCode) {
-      setError('Kode verifikasi salah! Silakan masukkan kode 6-digit yang benar.');
-      return;
-    }
-    const currentIp = getSimulatedIp(email);
-    const users = getRegisteredUsers();
-    
-    const settings = getSettings();
-    const initialPoints = settings.registerPointsReward !== undefined ? settings.registerPointsReward : 50;
-    
-    const finalQuestion = regQuestion === 'custom' ? regQuestionCustom : regQuestion;
-    users.push({ 
-      name, 
-      email, 
-      password, 
-      points: initialPoints, 
-      ip: currentIp,
-      securityQuestion: finalQuestion,
-      securityAnswer: regAnswer,
-      verified: true
-    });
-    await saveRegisteredUsers(users);
-    setSuccess('Akun berhasil diverifikasi & didaftarkan! Silakan masuk.');
-    setError('');
-    
-    setIsRegister(false);
-    setIsVerifyingEmail(false);
-    setName('');
-    setPassword('');
-    setRegAnswer('');
-    setRegQuestionCustom('');
-    setRegQuestion(STANDARD_SECURITY_QUESTIONS[0]);
-  };
+  const [isLoading, setIsLoading] = useState(false);
 
-  const sendVerificationCode = () => {
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    setVerificationCode(code);
-    setVerificationInput('');
-    setVerificationTimer(60);
-    setSuccess(`Kode verifikasi baru telah dikirimkan ke email ${email}!`);
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
     setError('');
+    setSuccess('');
+    try {
+      const userState = await loginWithGoogleFirebase();
+      setSuccess('Berhasil masuk dengan Google!');
+      onLogin(userState);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Gagal masuk dengan Google.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSubmit = async (e: any) => {
@@ -2002,94 +1880,74 @@ export function LoginScreen({ onLogin }: { onLogin: (user: UserState) => void })
     if (!email || !password) return;
     if (isRegister && !name) return;
 
-    if (password.length !== 6) {
-      setError('Password harus tepat 6 karakter/angka!');
+    if (password.length < 6) {
+      setError('Password harus minimal 6 karakter!');
       return;
     }
+    if (isRegister && !/\d$/.test(password)) {
+      setError('Password harus diakhiri dengan angka (nomor di belakang)! (Contoh: rahasia123)');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    setSuccess('');
 
     try {
       await initializeFirestoreSync();
-    } catch (e) {
-      console.error("Firestore sync before LoginScreen submit failed:", e);
+    } catch (err) {
+      console.error("Firestore sync before LoginScreen submit failed:", err);
     }
 
-    if (isRegister) {
-      const usersRaw = localStorage.getItem('registered_users');
-      const users = usersRaw ? JSON.parse(usersRaw) : [];
-      const exists = users.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
-      if (exists) {
-        setError('Email sudah terdaftar! Silakan gunakan email lain atau langsung masuk.');
-        return;
+    try {
+      if (isRegister) {
+        if (regQuestion === 'custom' && !regQuestionCustom.trim()) {
+          setError('Silakan masukkan pertanyaan keamanan kustom Anda.');
+          setIsLoading(false);
+          return;
+        }
+        if (!regAnswer.trim()) {
+          setError('Silakan masukkan jawaban keamanan rahasia Anda.');
+          setIsLoading(false);
+          return;
+        }
+
+        const finalQuestion = regQuestion === 'custom' ? regQuestionCustom : regQuestion;
+        await registerWithEmailFirebase(email, password, name, finalQuestion, regAnswer);
+        setSuccess('Akun berhasil didaftarkan! Silakan masuk.');
+        setIsRegister(false);
+        setPassword('');
+        setRegAnswer('');
+        setRegQuestionCustom('');
+      } else {
+        if (rememberMe) {
+          localStorage.setItem('saved_credentials', JSON.stringify({ email, password }));
+        } else {
+          localStorage.removeItem('saved_credentials');
+        }
+
+        const userState = await loginWithEmailFirebase(email, password);
+        setSuccess('Berhasil masuk!');
+        onLogin(userState);
       }
-      
-      if (regQuestion === 'custom' && !regQuestionCustom.trim()) {
-        setError('Silakan masukkan pertanyaan keamanan kustom Anda.');
-        return;
+    } catch (err: any) {
+      console.error(err);
+      let errorMsg = 'Terjadi kesalahan sistem.';
+      if (err.code === 'auth/email-already-in-use') {
+        errorMsg = 'Email sudah terdaftar! Silakan masuk atau gunakan email lain.';
+      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+        errorMsg = 'Email atau password salah!';
+      } else if (err.code === 'auth/weak-password') {
+        errorMsg = 'Password terlalu lemah! Gunakan minimal 6 karakter.';
+      } else if (err.code === 'auth/invalid-email') {
+        errorMsg = 'Format email tidak valid!';
+      } else if (err.message) {
+        errorMsg = err.message;
       }
-      if (!regAnswer.trim()) {
-        setError('Silakan masukkan jawaban keamanan rahasia Anda.');
-        return;
-      }
-      
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      setVerificationCode(code);
-      setVerificationInput('');
-      setVerificationTimer(60);
-      setIsVerifyingEmail(true);
-      setError('');
-      setSuccess('');
-      return;
+      setError(errorMsg);
+    } finally {
+      setIsLoading(false);
     }
-
-    if (rememberMe) {
-      localStorage.setItem('saved_credentials', JSON.stringify({ email, password }));
-    } else {
-      localStorage.removeItem('saved_credentials');
-    }
-    
-    const usersRaw = localStorage.getItem('registered_users');
-    const users = usersRaw ? JSON.parse(usersRaw) : [];
-    const foundUser = users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
-
-    if (!foundUser) {
-      setError('Akun tidak ditemukan. Silakan daftar terlebih dahulu atau akun Anda mungkin telah dihapus.');
-      return;
-    }
-
-    const currentIp = getSimulatedIp(email);
-    const banReason = checkBanStatus(foundUser || { email, ip: currentIp });
-    if (banReason) {
-      setError(banReason);
-      return;
-    }
-
-    if (foundUser && foundUser.password !== password) {
-      setError('Password salah! Silakan masukkan password yang tepat.');
-      return;
-    }
-
-    const settings = getSettings();
-    const initialPoints = settings.registerPointsReward !== undefined ? settings.registerPointsReward : 50;
-
-    const username = foundUser ? foundUser.name : email.split('@')[0];
-    const userPoints = foundUser && foundUser.points !== undefined ? foundUser.points : initialPoints;
-    const premiumUntil = foundUser && foundUser.premiumUntil !== undefined ? foundUser.premiumUntil : null;
-    const hasSeenTutorial = foundUser && foundUser.hasSeenTutorial !== undefined ? foundUser.hasSeenTutorial : false;
-
-    const mockUser: UserState = {
-      isLoggedIn: true,
-      username: username || `User${Math.floor(Math.random() * 1000)}`,
-      email,
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + email,
-      points: userPoints,
-      premiumUntil,
-      hasSeenTutorial,
-      ip: currentIp,
-      banned: foundUser ? foundUser.banned : false
-    };
-
-    logUserLogin(email, mockUser.username, mockUser.points);
-    onLogin(mockUser);
   };
 
   if (isForgotPassword) {
@@ -2123,9 +1981,9 @@ export function LoginScreen({ onLogin }: { onLogin: (user: UserState) => void })
                 <input type="text" required value={forgotAnswer} onChange={e => setForgotAnswer(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-5 py-4 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none" placeholder="Masukkan jawaban rahasia" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Password Baru (6 Karakter)</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Password Baru (Min. 6 Karakter & Diakhiri Angka)</label>
                 <div className="relative">
-                  <input type={showResetPassword ? "text" : "password"} required maxLength={6} value={forgotNewPassword} onChange={e => setForgotNewPassword(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-5 py-4 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none" placeholder="Masukkan password baru" />
+                  <input type={showResetPassword ? "text" : "password"} required maxLength={32} value={forgotNewPassword} onChange={e => setForgotNewPassword(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-5 py-4 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none" placeholder="Masukkan password baru (min 6 karakter & diakhiri angka)" />
                   <button
                     type="button"
                     onClick={() => setShowResetPassword(!showResetPassword)}
@@ -2152,48 +2010,15 @@ export function LoginScreen({ onLogin }: { onLogin: (user: UserState) => void })
     );
   }
 
-  if (isVerifyingEmail) {
-    return (
-      <div className="w-full max-w-md mx-auto bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800">
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Mail className="w-8 h-8" />
-          </div>
-          <h3 className="text-xl font-bold text-slate-900 dark:text-white">Verifikasi Email Anda</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">Kode OTP 6-digit telah dikirim ke: <br/><strong className="text-slate-700 dark:text-slate-300">{email}</strong></p>
-        </div>
-        <form onSubmit={handleVerifyAndRegister} className="space-y-4">
-          {error && <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-xs font-semibold text-center">{error}</div>}
-          {success && <div className="bg-emerald-50 text-emerald-600 p-3 rounded-xl text-xs font-semibold text-center">{success}</div>}
-          <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-xs p-3 rounded-xl text-center border border-blue-200 dark:border-blue-800">
-            <strong>SIMULASI:</strong> Kode verifikasi Anda adalah: <span className="text-lg font-black tracking-widest block mt-1">{verificationCode}</span>
-          </div>
-          <div>
-            <input type="text" required maxLength={6} value={verificationInput} onChange={e => setVerificationInput(e.target.value.replace(/\D/g, ''))} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-5 py-4 text-center text-xl font-bold tracking-[0.5em] text-slate-900 dark:text-white focus:border-indigo-500 outline-none" placeholder="------" />
-          </div>
-          <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl">
-            Verifikasi & Buat Akun
-          </button>
-          <div className="text-center mt-4">
-            <button type="button" disabled={verificationTimer > 0} onClick={sendVerificationCode} className="text-xs text-indigo-600 font-semibold disabled:text-slate-400">
-              {verificationTimer > 0 ? `Kirim ulang kode (${verificationTimer}s)` : 'Kirim Ulang Kode OTP'}
-            </button>
-          </div>
-          <div className="text-center mt-2">
-            <button type="button" onClick={() => setIsVerifyingEmail(false)} className="text-xs text-slate-500 font-semibold">
-              Batal & Kembali
-            </button>
-          </div>
-        </form>
-      </div>
-    );
-  }
+
 
   return (
     <div className="w-full max-w-md mx-auto bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800">
-      <div className="text-center mb-8">
-        <div className="w-20 h-20 bg-indigo-600 text-white rounded-[1.5rem] flex items-center justify-center mx-auto mb-6 shadow-lg shadow-indigo-500/30">
-          <LogIn className="w-10 h-10" />
+      <div className="text-center mb-6">
+        <div className="inline-flex flex-col items-center mb-4">
+          <div className="w-20 h-20 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-[1.8rem] flex items-center justify-center shadow-lg shadow-indigo-500/30">
+            <Sparkles className="w-10 h-10 text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.6)]" />
+          </div>
         </div>
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
           {isRegister ? 'Buat Akun Baru' : 'Selamat Datang'}
@@ -2244,16 +2069,16 @@ export function LoginScreen({ onLogin }: { onLogin: (user: UserState) => void })
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wider">Password (6 Karakter)</label>
+          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wider">Password (Min. 6 Karakter & Diakhiri Angka)</label>
           <div className="relative">
             <input
               type={showPassword ? "text" : "password"}
               required
-              maxLength={6}
+              maxLength={32}
               value={password}
               onChange={e => setPassword(e.target.value)}
               className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-slate-800 rounded-xl px-5 py-4 text-sm font-mono tracking-widest text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none transition-colors"
-              placeholder="••••••"
+              placeholder="Masukkan password (min 6 karakter & diakhiri angka)"
             />
             <button
               type="button"
@@ -2335,8 +2160,40 @@ export function LoginScreen({ onLogin }: { onLogin: (user: UserState) => void })
         )}
 
         <div className="pt-2">
-          <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl transition-all shadow-lg hover:shadow-indigo-500/25 flex items-center justify-center gap-2">
-            <LogIn className="w-5 h-5" /> {isRegister ? 'Daftar Sekarang' : 'Masuk'}
+          <button 
+            type="submit" 
+            disabled={isLoading}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl transition-all shadow-lg hover:shadow-indigo-500/25 flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {isLoading ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <>
+                <LogIn className="w-5 h-5" /> {isRegister ? 'Daftar Sekarang' : 'Masuk'}
+              </>
+            )}
+          </button>
+          
+          <div className="relative my-6 text-center">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200 dark:border-slate-800"></div>
+            </div>
+            <span className="relative px-3 text-[10px] font-bold text-slate-400 bg-white dark:bg-slate-900 uppercase tracking-wider">Atau Lanjutkan Dengan</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-2.5 bg-white dark:bg-slate-900/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-200 font-bold py-3.5 px-4 rounded-2xl border border-slate-200 dark:border-slate-800 transition-all shadow-sm active:scale-[0.99] disabled:opacity-50"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+            Masuk dengan Google
           </button>
           
           {!isRegister && (
