@@ -8,7 +8,7 @@ import { addHistory } from './lib/history';
 import { getSettings, saveSettings } from './lib/settings';
 import { HistoryPanel, InfoPanel, AdminPanel, SidebarMenu, RatingPanel, AboutPanel, FeedbackPanel, UpdateModal } from './components/Panels';
 import { t } from './lib/i18n';
-import { UserState, loadUser, saveUser, isPremiumActive, checkBanStatus, getSimulatedIp, getBannedEmails, getBannedIps, saveBannedEmails, saveBannedIps, initializeFirestoreSync } from "./lib/user";
+import { UserState, loadUser, saveUser, isPremiumActive, checkBanStatus, getSimulatedIp, getBannedEmails, getBannedIps, saveBannedEmails, saveBannedIps, initializeFirestoreSync, logoutFirebase } from "./lib/user";
 import { AuthModal, RewardsPanel, UserProfilePanel, LoginScreen, TutorialPanel } from "./components/UserPanels";
 import { AdBanner } from "./components/AdBanner";
 
@@ -499,11 +499,11 @@ export default function App() {
           </div>
           <div className="flex justify-center gap-3">
             <button 
-              onClick={() => {
+              onClick={async () => {
                 const updated = { ...user, isLoggedIn: false };
                 setUser(updated);
-                saveUser(updated);
-                localStorage.removeItem('user_state');
+                await saveUser(updated);
+                await logoutFirebase();
                 window.location.reload();
               }}
               className="px-6 py-2.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-850 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs transition-all cursor-pointer"
@@ -535,15 +535,6 @@ export default function App() {
       </div>
 
       <div className="fixed top-6 right-6 sm:top-8 sm:right-8 z-40 flex items-center gap-3 sm:gap-4">
-        {settings?.updateNotificationActive !== false && (
-          <button
-            onClick={() => setShowUpdate(true)}
-            className="bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 text-indigo-600 dark:text-indigo-400 px-3 py-2 rounded-full text-xs font-bold shadow-lg backdrop-blur-md flex items-center gap-1.5 hover:scale-105 transition-all"
-          >
-            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
-            <span className="hidden sm:inline">Update</span> {settings?.updateVersion || 'v2.5.0'}
-          </button>
-        )}
         {settings.announcement && (
           <div className="hidden sm:flex bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 px-4 py-2 rounded-full text-sm font-bold shadow-lg backdrop-blur-md">
             📢 {settings.announcement}
@@ -742,9 +733,7 @@ export default function App() {
         onOpenHistory={() => setShowHistory(true)}
         onOpenAdmin={() => setShowAdmin(true)}
         onOpenInfo={() => setShowInfo(true)}
-        onOpenAbout={() => setShowAbout(true)}
         onOpenFeedback={() => setShowFeedback(true)}
-        onOpenUpdate={() => setShowUpdate(true)}
         onOpenRating={() => setShowRating(true)}
         isDark={isDark}
         setIsDark={setIsDark}
@@ -754,9 +743,7 @@ export default function App() {
       <HistoryPanel isOpen={showHistory} onClose={() => setShowHistory(false)} />
       <AdminPanel isOpen={showAdmin} onClose={() => setShowAdmin(false)} settings={settings} onSave={handleSaveSettings} />
       <InfoPanel isOpen={showInfo} onClose={() => setShowInfo(false)} settings={settings} />
-      <AboutPanel isOpen={showAbout} onClose={() => setShowAbout(false)} settings={settings} />
       <FeedbackPanel isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
-      <UpdateModal isOpen={showUpdate} onClose={() => setShowUpdate(false)} settings={settings} />
       <RatingPanel isOpen={showRating} onClose={() => setShowRating(false)} />
       <RewardsPanel isOpen={showRewards} onClose={() => setShowRewards(false)} user={user} onRedeem={(days, cost) => {
         const premiumUntil = days === -1 ? -1 : (days === 0 ? null : (Date.now() + days * 24 * 60 * 60 * 1000));
@@ -770,7 +757,7 @@ export default function App() {
         saveUser(updated);
       }} />
       <TutorialPanel isOpen={showTutorial} onClose={() => { setShowTutorial(false); const u = { ...user, hasSeenTutorial: true }; setUser(u); saveUser(u); }} />
-      <UserProfilePanel isOpen={showProfile} onClose={() => setShowProfile(false)} user={user} onLogout={() => { const u = { ...user, isLoggedIn: false }; setUser(u); saveUser(u); }} onOpenRewards={() => setShowRewards(true)} onUpdateUser={(updated) => { setUser(updated); saveUser(updated); }} />
+      <UserProfilePanel isOpen={showProfile} onClose={() => setShowProfile(false)} user={user} onLogout={async () => { const u = { ...user, isLoggedIn: false }; setUser(u); await saveUser(u); await logoutFirebase(); }} onOpenRewards={() => setShowRewards(true)} onUpdateUser={(updated) => { setUser(updated); saveUser(updated); }} />
       <AnnouncementModal 
         isOpen={showAnnouncement} 
         onClose={() => { 
