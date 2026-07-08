@@ -116,14 +116,25 @@ export default function App() {
     window.addEventListener('user_updated', handleStorageChange);
 
     const runSync = async () => {
-      await initializeFirestoreSync();
-      setUser(loadUser());
+      try {
+        await initializeFirestoreSync();
+        setUser(loadUser());
+        // Dispatch events to let other components know the data has been refreshed
+        window.dispatchEvent(new Event('storage'));
+        window.dispatchEvent(new Event('user_updated'));
+      } catch (e) {
+        console.error("Firestore sync in App.tsx failed:", e);
+      }
     };
     runSync();
+
+    // Sync with Firestore every 8 seconds to enable real-time cross-device updates for users & admin
+    const interval = setInterval(runSync, 8000);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('user_updated', handleStorageChange);
+      clearInterval(interval);
     };
   }, []);
 
