@@ -1,5 +1,12 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
+  doc,
+  getDocFromServer
+} from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
   projectId: "gen-lang-client-0184221253",
@@ -14,5 +21,27 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore
-export const db = getFirestore(app, "ai-studio-018b1057-1a2f-45f4-9a28-a6deaba744c3");
+// Initialize Auth
+export const auth = getAuth(app);
+
+// Initialize Firestore with long polling and persistent local cache
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+}, "ai-studio-018b1057-1a2f-45f4-9a28-a6deaba744c3");
+
+// Validate Connection to Firestore (as required by the firebase skill)
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration.");
+    } else {
+      console.warn("Firestore validation notice (offline operation available):", error);
+    }
+  }
+}
+testConnection();
